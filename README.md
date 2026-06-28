@@ -1,5 +1,8 @@
 # Agentic AWS Documentation Chatbot
 
+[![CI](https://github.com/yashyaadav/aws-doc-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/yashyaadav/aws-doc-chatbot/actions/workflows/ci.yml)
+&nbsp;**100% Terraform** · 31 AWS resources · `terraform plan` = no drift
+
 A serverless chatbot that answers AWS questions in natural language by **reasoning over the
 live AWS documentation**. A Claude agent on Amazon Bedrock (Sonnet 4.6 by default on the deployed
 path for latency; Opus 4.8 is a one-variable swap) calls the official
@@ -64,6 +67,35 @@ Browser ─▶ CloudFront ─▶ API Gateway (HTTP) ─▶ Lambda (container)
 > uses **API Gateway** (buffered, 30s cap) instead. The Function URL design is preferred in an
 > unrestricted account; both are in the Terraform (the `apigw` module is the active ingress).
 
+## Infrastructure as Code (Terraform)
+
+**Every AWS resource is defined in Terraform — nothing was created by hand in the console.** The live
+stack is **31 resources** across 8 composable modules, with its own S3 state backend + DynamoDB lock;
+`terraform plan` against production reports **no drift**.
+
+| Module (`infra/modules/`) | Provisions |
+| --- | --- |
+| `ecr`            | Container registry + lifecycle policy for the Lambda image |
+| `lambda`         | Container Lambda + **least-privilege IAM role** (Bedrock invoke, the one guardrail, the one DynamoDB table, logs, X-Ray) |
+| `apigw`          | HTTP API → Lambda proxy integration (the active ingress) |
+| `frontend`       | Private S3 bucket (OAC) + **CloudFront** (static UI + `/api/*` proxy) |
+| `cognito`        | User pool, app client, Hosted-UI domain, reproducible demo user |
+| `dynamodb`       | Conversation-history table (on-demand, TTL) |
+| `guardrail`      | **Bedrock Guardrail** (topic / content / PII policies) + published version |
+| `observability`  | CloudWatch dashboard, Lambda-error alarm, AWS Budgets alarm |
+
+```bash
+make tf-init      # init backend (own bucket yy-awsdocs-tfstate-*, lock table yy-awsdocs-tflock)
+make tf-plan      # review (currently: no changes)
+make tf-apply     # provision / update everything
+make tf-destroy   # tear it all down
+```
+
+`envs/dev/` wires the modules together; `versions.tf` pins the AWS provider and the remote backend.
+GitHub Actions (`.github/workflows/ci.yml`) runs `terraform fmt -check` + `validate` on every PR, and
+`deploy.yml` automates build/push/apply via GitHub OIDC. See
+[docs/architecture.md](docs/architecture.md) for the full rationale.
+
 See [docs/architecture.md](docs/architecture.md) for the full design, request flow, and
 alternatives considered.
 
@@ -96,9 +128,10 @@ docs/       architecture + rationale
 ```
 
 ## Configuration
-All via env (see `.env.example`): `BEDROCK_MODEL_ID` (default the Opus 4.8 global inference
-profile), `AWS_REGION`, `AGENT_MAX_TOKENS`/`AGENT_MAX_TOOL_ITERATIONS` (cost/latency guards),
-`CONVERSATIONS_TABLE` (DynamoDB; empty = in-memory for local), `AUTH_ENABLED` + Cognito ids.
+All via env (see `.env.example`): `BEDROCK_MODEL_ID` (default the Sonnet 4.6 global inference profile;
+swap to Opus 4.8 in one line), `AWS_REGION`, `AGENT_MAX_TOKENS`/`AGENT_MAX_TOOL_ITERATIONS`
+(cost/latency guards), `CONVERSATIONS_TABLE` (DynamoDB; empty = in-memory for local), `AUTH_ENABLED`
++ Cognito ids.
 
 ## Deploying & updating
 
@@ -143,7 +176,7 @@ aws cloudfront create-invalidation --distribution-id <id> --paths "/" "/index.ht
 > `$REPO:latest` triggers the `:l` history modifier and silently mangles the tag.
 
 ## Cost
-On-demand only: Bedrock per-token (Opus 4.8), Lambda per-invocation, DynamoDB on-demand,
+On-demand only: Bedrock per-token (Sonnet 4.6 by default), Lambda per-invocation, DynamoDB on-demand,
 CloudFront/S3 negligible at rest. A Budgets alarm is provisioned. `make tf-destroy` tears it down.
 
 ## Status
