@@ -16,6 +16,32 @@ Browser ─▶ CloudFront ─▶ API Gateway (HTTP) ─▶ Lambda (container)
                                             DynamoDB (history)   Cognito (auth, JWT verified in-handler)
 ```
 
+## Screenshots
+
+| Grounded answer with citations | AWS-scoped by a Bedrock guardrail |
+| --- | --- |
+| ![Chat answer with rendered code and cited AWS doc URLs](docs/images/answer-with-citations.png) | ![Off-topic question declined by the guardrail](docs/images/ui-guardrail-scoping.png) |
+| The agent searches/reads the live docs, then answers with rendered code blocks and **clickable `docs.aws.amazon.com` sources**. | An off-topic question (_"how should I invest in stocks?"_) gets the scoped refusal — answers stay on AWS. |
+
+## Features
+
+- **Answers grounded in live AWS docs, with citations** — every reply is built from pages the agent
+  fetched at query time (via the AWS-Docs MCP server) and ends with the source URLs, not the model's
+  training memory.
+- **Genuinely agentic** — Claude decides when to `search_documentation` / `read_documentation` and
+  iterates; the tool calls are visible in CloudWatch (proof it isn't answering from memory).
+- **AWS-scoped & safe** — a Bedrock Guardrail keeps it on AWS topics, filters unsafe content /
+  prompt-injection, and redacts PII on every invocation.
+- **Polished chat UI** — dark, AWS-accented interface with message bubbles, a "thinking" indicator,
+  and client-side **markdown rendering** (code blocks, inline code, auto-linked citations).
+- **Multi-turn memory that survives refresh** — history is persisted in DynamoDB per session and
+  rehydrated on page load; a **New chat** button starts a fresh session.
+- **Authenticated** — Cognito Hosted UI login; the JWT is verified in-handler before the agent runs.
+- **Latency-guarded** — Sonnet 4.6 with a hard cap of 3 tool calls/turn and token limits keep
+  answers within the deployed timeout (Opus 4.8 is a one-variable swap).
+- **100% Infrastructure-as-Code** — Terraform provisions every resource (ECR, Lambda, API Gateway,
+  CloudFront, Cognito, DynamoDB, Guardrail, IAM, observability) with GitHub Actions CI.
+
 ## Try the live demo
 
 - **URL:** https://d47xudcf1qjnj.cloudfront.net  (AWS account 315311531132 / us-east-1)
