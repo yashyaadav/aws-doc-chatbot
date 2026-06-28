@@ -44,10 +44,19 @@ documentation, delivered as a production-grade serverless app provisioned with T
 - **Strands Agents** runs the agentic loop and adapts MCP tools to Bedrock — least boilerplate,
   AWS-native. Note: Amazon Bedrock does not offer Anthropic Managed Agents / server-side tools, so
   the loop is client-side, hosted in our Lambda (this is **not** "Bedrock Agents").
-- **Claude Opus 4.8** via the global inference profile
-  `arn:aws:bedrock:us-east-1:315311531132:inference-profile/global.anthropic.claude-opus-4-8`.
-  Sampling params (`temperature`/`top_p`) are not accepted on this model family — confirmed via the
-  smoke test. Model id is a config var so it is swappable (e.g. to Sonnet 4.6 for cost).
+- **Claude on Bedrock via a global inference profile.** The deployed path defaults to **Sonnet 4.6**
+  (`global.anthropic.claude-sonnet-4-6`) because it is materially faster per step than Opus, which
+  matters under the API Gateway 30s cap; **Opus 4.8**
+  (`global.anthropic.claude-opus-4-8`) is a one-variable swap (`bedrock_model_id`) for max quality,
+  and the Lambda IAM already allows both. Sampling params (`temperature`/`top_p`) are not accepted on
+  this model family — confirmed via the smoke test.
+- **Latency guards for the 30s buffered cap.** An agentic turn does several live doc fetches plus
+  generation, which can exceed API Gateway's limit. Mitigations: Sonnet 4.6, a **hard cap of 3 tool
+  calls per turn** (a Strands `BeforeToolCallEvent` hook that cancels the 4th with an "answer now"
+  message — graceful, not truncation), `AGENT_MAX_TOKENS=2000`, and 2048 MB Lambda memory to keep
+  cold-start init under the 10s window. Broad questions now complete (~24s) instead of timing out.
+  The residual cost is a slow first-hit cold start (~15-18s); provisioned concurrency or the
+  streaming Function URL (blocked here) would remove it.
 - **Ingress: CloudFront → API Gateway (HTTP) → Lambda.** The *intended* design was a streaming
   **Lambda Function URL** behind CloudFront (avoids API Gateway's 29s cap, which an Opus agentic
   turn can exceed). **This shared exam account blocks Function URL invocation via an org guardrail**
