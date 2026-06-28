@@ -15,14 +15,17 @@ variable "image_tag" {
 }
 
 variable "bedrock_model_id" {
-  type    = string
-  default = "global.anthropic.claude-opus-4-8"
+  type        = string
+  description = "Bedrock model / inference profile id. Sonnet 4.6 by default (fast enough for the 30s API Gateway cap); swap to global.anthropic.claude-opus-4-8 for max quality."
+  default     = "global.anthropic.claude-sonnet-4-6"
 }
 
 variable "bedrock_resource_arns" {
   type        = list(string)
-  description = "ARNs the Lambda may bedrock:InvokeModel — the global inference profile plus the foundation models it routes to."
+  description = "ARNs the Lambda may bedrock:InvokeModel — the global inference profiles plus the foundation models they route to. Both Sonnet and Opus are allowed so the model can be switched via bedrock_model_id with no IAM change."
   default = [
+    "arn:aws:bedrock:us-east-1:315311531132:inference-profile/global.anthropic.claude-sonnet-4-6",
+    "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6",
     "arn:aws:bedrock:us-east-1:315311531132:inference-profile/global.anthropic.claude-opus-4-8",
     "arn:aws:bedrock:*::foundation-model/anthropic.claude-opus-4-8",
   ]

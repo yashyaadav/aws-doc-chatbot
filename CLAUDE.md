@@ -9,8 +9,11 @@ MCP server, served as a streaming serverless web app, all in Terraform. See
 - Shared **AllCloud exam account `315311531132`**, region **us-east-1**, AWS profile **`assignment`**.
 - ⚠️ Multi-tenant: **only touch resources you created.** Namespace everything `yy-awsdocs-*`.
   Terraform state lives in `yy-awsdocs-tfstate-315311531132` (our own bucket — not the shared one).
-- Model: `global.anthropic.claude-opus-4-8` (global inference profile). **No `temperature`/`top_p`**
-  on this model family — they 400. Use `max_tokens` / `effort` only.
+- Model: deployed default `global.anthropic.claude-sonnet-4-6` (faster, fits the API Gateway 30s cap);
+  `global.anthropic.claude-opus-4-8` is a one-var swap (`bedrock_model_id`), IAM allows both. **No
+  `temperature`/`top_p`** on this model family — they 400. Use `max_tokens` / `effort` only.
+- Latency guards on the deployed path: hard cap of **3 tool calls/turn** (Strands `BeforeToolCallEvent`
+  hook in `agent.py`), `AGENT_MAX_TOKENS=2000`, 2048 MB Lambda. Broad agentic turns must finish <30s.
 
 ## Backend (`backend/`)
 - One FastAPI app (`app/main.py`) runs both locally (uvicorn) and on Lambda (container + AWS Lambda

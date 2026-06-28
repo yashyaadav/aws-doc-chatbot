@@ -76,7 +76,7 @@ resource "aws_lambda_function" "this" {
   package_type  = "Image"
   image_uri     = var.image_uri
   timeout       = 300
-  memory_size   = 1024
+  memory_size   = 2048 # more vCPU → faster cold-start import (keeps init under the 10s cap)
   architectures = ["x86_64"]
 
   environment {
@@ -86,7 +86,8 @@ resource "aws_lambda_function" "this" {
       AUTH_ENABLED              = var.auth_enabled ? "true" : "false"
       COGNITO_USER_POOL_ID      = var.cognito_user_pool_id
       COGNITO_APP_CLIENT_ID     = var.cognito_app_client_id
-      AGENT_MAX_TOKENS          = "3000" # keep turns within the API Gateway 30s cap
+      AGENT_MAX_TOKENS          = "2000" # keep turns within the API Gateway 30s cap
+      AGENT_MAX_TOOL_ITERATIONS = "3"    # hard cap on doc lookups per turn (latency guard)
       AWS_LWA_INVOKE_MODE       = "buffered"
       BEDROCK_GUARDRAIL_ID      = var.guardrail_id
       BEDROCK_GUARDRAIL_VERSION = var.guardrail_version

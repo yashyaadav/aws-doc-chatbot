@@ -1,15 +1,16 @@
 # Agentic AWS Documentation Chatbot
 
 A serverless chatbot that answers AWS questions in natural language by **reasoning over the
-live AWS documentation**. A Claude (Opus 4.8) agent on Amazon Bedrock calls the official
+live AWS documentation**. A Claude agent on Amazon Bedrock (Sonnet 4.6 by default on the deployed
+path for latency; Opus 4.8 is a one-variable swap) calls the official
 [awslabs AWS Documentation MCP server](https://github.com/awslabs/mcp) as a tool — it searches
 and reads real AWS docs at query time and answers **with citations**, rather than relying on the
 model's training memory. Everything is Infrastructure-as-Code (Terraform).
 
 ```
 Browser ─▶ CloudFront ─▶ API Gateway (HTTP) ─▶ Lambda (container)
-                                                    │  Strands agent loop
-                                                    ├─ Claude Opus 4.8 on Bedrock
+                                                    │  Strands agent loop (≤3 tool calls/turn)
+                                                    ├─ Claude on Bedrock (Sonnet 4.6 default)
                                                     └─ AWS-Docs MCP server (stdio, in-image) ─▶ docs.aws.amazon.com
                                                     │
                                             DynamoDB (history)   Cognito (auth, JWT verified in-handler)
