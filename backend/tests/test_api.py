@@ -63,7 +63,10 @@ def test_history_skips_non_text_blocks():
         {"role": "user", "content": [{"toolResult": {"content": []}}]},  # tool result
         {"role": "assistant", "content": [{"text": "a"}]},
     ]
-    assert _extract_turns(msgs) == [{"role": "user", "text": "q"}, {"role": "assistant", "text": "a"}]
+    assert _extract_turns(msgs) == [
+        {"role": "user", "text": "q"},
+        {"role": "assistant", "text": "a"},
+    ]
 
 
 def test_auth_required_when_enabled(monkeypatch):
