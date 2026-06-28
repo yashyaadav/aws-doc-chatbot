@@ -45,6 +45,30 @@ def test_chat_streams_and_persists(client):
     assert len(main_mod.store.get("s1")) == 2
 
 
+def test_history_rehydrates_after_chat(client):
+    client.post("/api/chat", json={"session_id": "h1", "message": "hi"})
+    r = client.get("/api/history", params={"session_id": "h1"})
+    assert r.status_code == 200
+    turns = r.json()["turns"]
+    assert [t["role"] for t in turns] == ["user", "assistant"]
+    assert turns[0]["text"] == "hi" and turns[1]["text"] == "hello world"
+
+
+def test_history_skips_non_text_blocks():
+    from app.main import _extract_turns
+
+    msgs = [
+        {"role": "user", "content": [{"text": "q"}]},
+        {"role": "assistant", "content": [{"toolUse": {"name": "search"}}]},  # no text
+        {"role": "user", "content": [{"toolResult": {"content": []}}]},  # tool result
+        {"role": "assistant", "content": [{"text": "a"}]},
+    ]
+    assert _extract_turns(msgs) == [
+        {"role": "user", "text": "q"},
+        {"role": "assistant", "text": "a"},
+    ]
+
+
 def test_auth_required_when_enabled(monkeypatch):
     monkeypatch.setattr(config.settings, "mcp_enabled", False)
     monkeypatch.setattr(config.settings, "auth_enabled", True)

@@ -18,7 +18,9 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
-    "ruff>=0.6.0",
+    # Pinned: ruff's formatter output changes across versions, so CI and local
+    # must use the same one or `ruff format --check` flaps in CI.
+    "ruff==0.15.20",
 ]
 
 [tool.setuptools.packages.find]

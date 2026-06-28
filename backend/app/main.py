@@ -76,6 +76,29 @@ async def require_user(authorization: str | None = Header(default=None)) -> dict
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
+def _extract_turns(messages: list) -> list[dict]:
+    """Reduce the Strands message list to a renderable transcript: user/assistant
+    turns that carry text. Tool-call and tool-result blocks (which have no text,
+    e.g. fetched doc payloads) are skipped."""
+    turns = []
+    for m in messages:
+        role = m.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        text = "".join(
+            b["text"] for b in m.get("content", []) if isinstance(b.get("text"), str)
+        ).strip()
+        if text:
+            turns.append({"role": role, "text": text})
+    return turns
+
+
+@app.get("/api/history")
+async def history(session_id: str, _user=Depends(require_user)):
+    """Prior turns for a session, so the UI can rehydrate after a page refresh."""
+    return {"turns": _extract_turns(store.get(session_id))}
+
+
 @app.get("/healthz")
 async def healthz():
     return {

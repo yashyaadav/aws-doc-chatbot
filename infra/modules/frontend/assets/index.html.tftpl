@@ -86,7 +86,10 @@
       <div class="logo">aws</div>
       <h1>AWS Documentation Chatbot</h1>
     </div>
-    <button id="auth"></button>
+    <div style="display:flex; gap:8px;">
+      <button id="newchat">New chat</button>
+      <button id="auth"></button>
+    </div>
   </header>
   <div class="tagline">Ask about AWS &mdash; answers are grounded in the live AWS docs, with citations.</div>
 
@@ -132,6 +135,11 @@
     var s = localStorage.getItem("sid");
     if (!s) { s = "s-" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("sid", s); }
     return s;
+  }
+  function newChat() {
+    localStorage.setItem("sid", "s-" + Math.random().toString(36).slice(2) + Date.now().toString(36));
+    log.innerHTML = "";
+    msgInput.focus();
   }
 
   // --- minimal, self-contained markdown rendering (escape first, then format) ---
@@ -217,8 +225,28 @@
     } finally { setBusy(false); }
   }
 
+  // Rehydrate the visible transcript from the server after a refresh/login.
+  async function loadHistory() {
+    var headers = {};
+    var t = token(); if (t) { headers["Authorization"] = "Bearer " + t; }
+    try {
+      var resp = await fetch("/api/history?session_id=" + encodeURIComponent(sessionId()), { headers: headers });
+      if (!resp.ok) return;  // 401 when not logged in — nothing to show yet
+      var data = await resp.json();
+      (data.turns || []).forEach(function (turn) {
+        var role = turn.role === "user" ? "you" : "assistant";
+        var b = addTurn(role);
+        if (role === "assistant") { b.innerHTML = renderMarkdown(turn.text); }
+        else { b.textContent = turn.text; }
+      });
+      log.scrollTop = log.scrollHeight;
+    } catch (e) { /* ignore — start with an empty log */ }
+  }
+
   captureTokenFromHash();
   renderAuth();
+  loadHistory();
+  document.getElementById("newchat").onclick = newChat;
   document.getElementById("form").addEventListener("submit", function (e) {
     e.preventDefault();
     var m = msgInput.value.trim();
