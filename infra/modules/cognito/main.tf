@@ -57,6 +57,7 @@ resource "aws_cognito_user_pool_client" "web" {
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH",
+    "ALLOW_ADMIN_USER_PASSWORD_AUTH", # enables scripted token retrieval for testing/seeding
   ]
 
   # id token used as the bearer; keep its lifetime modest.

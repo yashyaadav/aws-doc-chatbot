@@ -14,16 +14,26 @@ MCP server, served as a streaming serverless web app, all in Terraform. See
 
 ## Backend (`backend/`)
 - One FastAPI app (`app/main.py`) runs both locally (uvicorn) and on Lambda (container + AWS Lambda
-  Web Adapter, Function URL `RESPONSE_STREAM`). Chat streams as SSE.
+  Web Adapter). Chat streams SSE locally; deployed ingress is **CloudFront → API Gateway → Lambda**
+  (buffered) because this account's org guardrail blocks Lambda Function URLs. MCP tools load lazily
+  on first request (not in lifespan) to stay within Lambda's init window.
 - `app/agent.py` builds the Strands agent; `app/mcp_client.py` launches the MCP server via
   `python -m awslabs.aws_documentation_mcp_server.server` (PATH-independent).
 - `app/sessions.py` = DynamoDB or in-memory history; `app/auth.py` = Cognito JWT verify
   (`AUTH_ENABLED=false` locally); `app/config.py` = env settings; `app/smoke.py` = Bedrock check.
+- A **Bedrock Guardrail** is attached to every invocation when `BEDROCK_GUARDRAIL_ID` /
+  `BEDROCK_GUARDRAIL_VERSION` are set (the `guardrail` TF module sets them on Lambda; empty locally
+  → no guardrail). It scopes to AWS topics, runs content/prompt-attack filters, and redacts PII.
 
 ## Commands
 - `make install` · `make smoke` · `make dev` · `make test` · `make lint` · `make fmt`
 - `make tf-init|tf-plan|tf-apply|tf-destroy` (infra)
 - Always load env first: handled by the Makefile (`set -a; source .env`).
+- CI: `.github/workflows/ci.yml` runs ruff + pytest + `terraform fmt/validate` on every PR (no AWS
+  creds). `deploy.yml` is a manual OIDC deploy (build/push image + `terraform apply`); if the shared
+  account blocks the OIDC provider, deploy locally with `make tf-apply` instead.
+- ⚠️ zsh applies `:l`/`:latest` as a history modifier — always write `${REPO}:latest` (braces), not
+  `$REPO:latest`, in image tags, or the tag silently mangles.
 
 ## Conventions
 - Keep the dual local/Lambda code path single (FastAPI app); don't fork a separate Lambda handler.

@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend lint + test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Create venv + install deps
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]"
+
+      - name: Ruff (lint + format check)
+        run: |
+          .venv/bin/ruff check app tests
+          .venv/bin/ruff format --check app tests
+
+      - name: Pytest
+        run: .venv/bin/pytest -q
+
+  terraform:
+    name: Terraform fmt + validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/envs/dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.5"
+
+      - name: Format check (all modules)
+        run: terraform fmt -check -recursive ../../
+
+      # Validate without touching the real backend/state (no AWS creds needed in CI).
+      - name: Init (no backend)
+        run: terraform init -backend=false
+
+      - name: Validate
+        run: terraform validate

@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
     bedrock_model_id: str = "global.anthropic.claude-opus-4-8"
 
+    # Bedrock Guardrail (empty -> none; applied on every invocation when set)
+    bedrock_guardrail_id: str = ""
+    bedrock_guardrail_version: str = ""
+
     # Agent behaviour (guards against runaway cost/latency)
     agent_max_tokens: int = 8000
     agent_max_tool_iterations: int = 8

@@ -22,11 +22,20 @@ guessing. Be concise and lead with the answer.
 
 
 def build_model() -> BedrockModel:
-    return BedrockModel(
+    kwargs = dict(
         model_id=settings.bedrock_model_id,
         region_name=settings.aws_region,
         max_tokens=settings.agent_max_tokens,
     )
+    # Attach the Bedrock Guardrail when configured so every invocation is
+    # screened (AWS-topic scoping, content filters, PII redaction).
+    if settings.bedrock_guardrail_id and settings.bedrock_guardrail_version:
+        kwargs.update(
+            guardrail_id=settings.bedrock_guardrail_id,
+            guardrail_version=settings.bedrock_guardrail_version,
+            guardrail_trace="enabled",
+        )
+    return BedrockModel(**kwargs)
 
 
 def build_agent(tools, history=None) -> Agent:
