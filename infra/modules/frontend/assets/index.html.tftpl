@@ -198,6 +198,9 @@
         body: JSON.stringify({ session_id: sessionId(), message: message })
       });
       if (resp.status === 401) { out.textContent = "Please log in to continue."; login(); return; }
+      // 502/504: the buffered API Gateway path timed out, but the agent turn is
+      // still finishing server-side and will be saved — recover it from history.
+      if (!resp.ok) { await recoverFromHistory(out); return; }
       var reader = resp.body.getReader();
       var dec = new TextDecoder();
       var buf = "";
@@ -221,8 +224,36 @@
           log.scrollTop = log.scrollHeight;
         }
       }
-      out.innerHTML = renderMarkdown(raw);
+      // Stream ended without an explicit "done": render what we have, or if the
+      // connection was cut before any text, recover the saved answer.
+      if (raw) { out.innerHTML = renderMarkdown(raw); }
+      else { await recoverFromHistory(out); }
+    } catch (e) {
+      await recoverFromHistory(out);  // network/stream error → try the saved turn
     } finally { setBusy(false); }
+  }
+
+  // The deployed (buffered) path can hit API Gateway's 30s cap before the agent
+  // finishes — but the completed turn is persisted server-side. Poll history and
+  // render the answer so the user never has to refresh manually.
+  async function recoverFromHistory(out) {
+    out.innerHTML = '<span style="opacity:.65">Still working on that — fetching the answer…</span>';
+    var headers = {}; var t = token(); if (t) { headers["Authorization"] = "Bearer " + t; }
+    for (var i = 0; i < 8; i++) {
+      await new Promise(function (r) { setTimeout(r, 3000); });
+      try {
+        var resp = await fetch("/api/history?session_id=" + encodeURIComponent(sessionId()), { headers: headers });
+        if (!resp.ok) continue;
+        var turns = (await resp.json()).turns || [];
+        var last = turns[turns.length - 1];
+        if (last && last.role === "assistant" && last.text) {
+          out.innerHTML = renderMarkdown(last.text);
+          log.scrollTop = log.scrollHeight;
+          return;
+        }
+      } catch (e) { /* keep polling */ }
+    }
+    out.innerHTML = '<span style="opacity:.65">That took too long to generate. Please try again, or ask a more specific question.</span>';
   }
 
   // Rehydrate the visible transcript from the server after a refresh/login.
