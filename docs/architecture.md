@@ -1,0 +1,74 @@
+# Architecture
+
+## Goal
+Let a user ask AWS questions in natural language and get answers grounded in the **live** AWS
+documentation, delivered as a production-grade serverless app provisioned with Terraform.
+
+## Diagram
+```
+                    Browser (static chat UI + Cognito Hosted UI login)
+                                │ HTTPS  (JWT: Authorization: Bearer)
+                        CloudFront (TLS, single domain)
+                       ┌────────┴───────────────────────┐
+              /  (static)                         /api/* (chat)
+          S3 static site (OAC)        Lambda Function URL  (RESPONSE_STREAM, 15-min)
+                                       Lambda (container image)  ── IAM exec role
+                                       ┌──────────────────────────────────────┐
+                                       │  verify Cognito JWT (in-handler)      │
+                                       │  Strands agent loop                   │
+                                       │   ├─ Claude Opus 4.8 on Bedrock       │ ─▶ bedrock:InvokeModel (global profile)
+                                       │   └─ AWS-Docs MCP server              │ ─▶ docs.aws.amazon.com
+                                       │        (stdio subprocess, in-image)   │    (Lambda not in a VPC → egress)
+                                       └───────────────┬──────────────────────┘
+                                                       │ read/write turn history
+                                            DynamoDB  yy-awsdocs-conversations
+                                                       │
+                              CloudWatch Logs / Metrics / X-Ray + Bedrock invocation logging
+                                          + AWS Budgets alarm  (+ optional Bedrock Guardrails)
+```
+
+## Request flow
+1. Browser logs in via the Cognito Hosted UI, gets a JWT, and POSTs `/api/chat`
+   (`{session_id, message}`) with `Authorization: Bearer <jwt>` through CloudFront.
+2. The Lambda (FastAPI app behind the AWS Lambda Web Adapter) verifies the JWT, loads prior turns
+   from DynamoDB, and builds a Strands agent seeded with that history.
+3. The agent runs the reason→tool→observe loop on Opus 4.8: it calls the AWS-Docs MCP tools
+   (`search_documentation`, `read_documentation`, `read_sections`, `recommend`) which fetch live
+   docs, then composes an answer with citation URLs.
+4. Tokens stream back to the browser as Server-Sent Events; the completed turn is persisted to
+   DynamoDB.
+
+## Key decisions
+- **Live docs via MCP, not RAG.** No crawl/embed/index pipeline; answers reflect current docs and
+  the tool calls are auditable in logs.
+- **Strands Agents** runs the agentic loop and adapts MCP tools to Bedrock — least boilerplate,
+  AWS-native. Note: Amazon Bedrock does not offer Anthropic Managed Agents / server-side tools, so
+  the loop is client-side, hosted in our Lambda (this is **not** "Bedrock Agents").
+- **Claude Opus 4.8** via the global inference profile
+  `arn:aws:bedrock:us-east-1:315311531132:inference-profile/global.anthropic.claude-opus-4-8`.
+  Sampling params (`temperature`/`top_p`) are not accepted on this model family — confirmed via the
+  smoke test. Model id is a config var so it is swappable (e.g. to Sonnet 4.6 for cost).
+- **Lambda Function URL with response streaming, behind CloudFront** — avoids API Gateway's 29s
+  integration cap, which an Opus agentic turn (several model calls + doc fetches) can exceed.
+- **MCP server packaged in the image** (pip-installed at build, launched as `python -m
+  awslabs.aws_documentation_mcp_server.server` — PATH-independent), spawned once per warm container
+  and reused. Lambda stays out of a VPC so it can reach `docs.aws.amazon.com`.
+- **DynamoDB for conversation state** (Lambda is stateless): one item per session, full message
+  list as JSON, with a TTL. In-memory fallback for local dev.
+- **Cost/latency guards:** `AGENT_MAX_TOKENS`, a tool-iteration cap, Bedrock prompt caching on the
+  stable system prompt, and an AWS Budgets alarm.
+
+## Alternatives considered
+- **Anthropic SDK (`AnthropicBedrock`) + a hand-written MCP tool-use loop** instead of Strands:
+  more direct control over streaming/caching/citations, but more boilerplate (list MCP tools →
+  convert to Anthropic tool schemas → dispatch `tool_use` blocks → loop). Strands was chosen for
+  speed of delivery and AWS-native fit. No dual code path is maintained.
+- **Bedrock Knowledge Base (RAG) over crawled docs:** rejected — adds an ingestion pipeline, vector
+  store cost, and staleness, for a docs corpus the MCP server already serves live.
+- **API Gateway (HTTP/WebSocket):** HTTP API's 29s cap is too tight for Opus agentic turns;
+  WebSocket adds protocol complexity. The streaming Function URL is simpler and sufficient.
+
+## Shared-account guardrails
+This runs in a shared AllCloud exam account (315311531132) with other tenants' resources. Every
+resource is namespaced `yy-awsdocs-*`, Terraform uses its own state bucket
+(`yy-awsdocs-tfstate-315311531132`), and only self-created resources are read or modified.

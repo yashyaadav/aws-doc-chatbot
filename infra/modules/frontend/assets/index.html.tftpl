@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AWS Documentation Chatbot</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  h1 { font-size: 1.15rem; margin: 0; }
+  #log { border: 1px solid #8884; border-radius: 8px; padding: 12px; height: 60vh; overflow-y: auto; white-space: pre-wrap; }
+  .turn { margin-bottom: 14px; }
+  .role { font-weight: 600; opacity: 0.7; font-size: 0.8rem; }
+  form { display: flex; gap: 8px; margin-top: 10px; }
+  input[type=text] { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #8886; }
+  button { padding: 10px 14px; border-radius: 8px; border: 0; background: #2563eb; color: #fff; cursor: pointer; }
+  button.secondary { background: #6b7280; }
+  small { opacity: 0.6; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AWS Documentation Chatbot</h1>
+  <button id="auth" class="secondary"></button>
+</header>
+<small>Ask about AWS. Answers are grounded in the live AWS docs, with citations.</small>
+<div id="log"></div>
+<form id="form">
+  <input id="msg" type="text" placeholder="e.g. How do I enable S3 versioning with the AWS CLI?" autocomplete="off" />
+  <button type="submit">Send</button>
+</form>
+
+<script>
+  var COGNITO_DOMAIN = "${cognito_domain}";
+  var CLIENT_ID = "${client_id}";
+  var REDIRECT = window.location.origin + "/";
+
+  // --- token handling (Cognito Hosted UI implicit flow) ---
+  function captureTokenFromHash() {
+    if (window.location.hash.indexOf("id_token=") !== -1) {
+      var p = new URLSearchParams(window.location.hash.substring(1));
+      var t = p.get("id_token");
+      if (t) { localStorage.setItem("idt", t); }
+      history.replaceState(null, "", window.location.pathname);
+    }
+  }
+  function token() { return localStorage.getItem("idt"); }
+  function login() {
+    var url = "https://" + COGNITO_DOMAIN + "/login?client_id=" + CLIENT_ID +
+      "&response_type=token&scope=" + encodeURIComponent("openid email") +
+      "&redirect_uri=" + encodeURIComponent(REDIRECT);
+    window.location.href = url;
+  }
+  function logout() { localStorage.removeItem("idt"); renderAuth(); }
+  function renderAuth() {
+    var btn = document.getElementById("auth");
+    if (token()) { btn.textContent = "Log out"; btn.onclick = logout; }
+    else { btn.textContent = "Log in"; btn.onclick = login; }
+  }
+
+  // --- session ---
+  function sessionId() {
+    var s = localStorage.getItem("sid");
+    if (!s) { s = "s-" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("sid", s); }
+    return s;
+  }
+
+  var log = document.getElementById("log");
+  function addTurn(role) {
+    var d = document.createElement("div"); d.className = "turn";
+    var r = document.createElement("div"); r.className = "role"; r.textContent = role;
+    var b = document.createElement("div");
+    d.appendChild(r); d.appendChild(b); log.appendChild(d); log.scrollTop = log.scrollHeight;
+    return b;
+  }
+
+  async function send(message) {
+    addTurn("you").textContent = message;
+    var out = addTurn("assistant");
+    var headers = { "Content-Type": "application/json" };
+    var t = token(); if (t) { headers["Authorization"] = "Bearer " + t; }
+    var resp = await fetch("/api/chat", {
+      method: "POST", headers: headers,
+      body: JSON.stringify({ session_id: sessionId(), message: message })
+    });
+    if (resp.status === 401) { out.textContent = "Please log in."; login(); return; }
+    var reader = resp.body.getReader();
+    var dec = new TextDecoder();
+    var buf = "";
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buf += dec.decode(chunk.value, { stream: true });
+      var parts = buf.split("\n\n");
+      buf = parts.pop();
+      for (var i = 0; i < parts.length; i++) {
+        var block = parts[i];
+        if (block.indexOf("event: done") !== -1) { log.scrollTop = log.scrollHeight; return; }
+        var isErr = block.indexOf("event: error") !== -1;
+        var line = block.split("\n").find(function (l) { return l.indexOf("data: ") === 0; });
+        if (!line) continue;
+        var text = JSON.parse(line.substring(6));
+        if (isErr) { out.textContent += "\n[error] " + text; return; }
+        out.textContent += text;
+        log.scrollTop = log.scrollHeight;
+      }
+    }
+  }
+
+  captureTokenFromHash();
+  renderAuth();
+  document.getElementById("form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var input = document.getElementById("msg");
+    var m = input.value.trim();
+    if (!m) return;
+    input.value = "";
+    send(m).catch(function (err) { addTurn("assistant").textContent = "[error] " + err; });
+  });
+</script>
+</body>
+</html>
