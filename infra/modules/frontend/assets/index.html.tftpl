@@ -5,31 +5,99 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>AWS Documentation Chatbot</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; }
-  header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  h1 { font-size: 1.15rem; margin: 0; }
-  #log { border: 1px solid #8884; border-radius: 8px; padding: 12px; height: 60vh; overflow-y: auto; white-space: pre-wrap; }
-  .turn { margin-bottom: 14px; }
-  .role { font-weight: 600; opacity: 0.7; font-size: 0.8rem; }
-  form { display: flex; gap: 8px; margin-top: 10px; }
-  input[type=text] { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #8886; }
-  button { padding: 10px 14px; border-radius: 8px; border: 0; background: #2563eb; color: #fff; cursor: pointer; }
-  button.secondary { background: #6b7280; }
-  small { opacity: 0.6; }
+  :root {
+    --bg: #0b0f19;
+    --panel: #121826;
+    --panel-2: #1b2233;
+    --border: #2a3346;
+    --text: #e6eaf2;
+    --muted: #8b94a7;
+    --accent: #ff9900;     /* AWS orange */
+    --accent-ink: #1a1206;
+    --user: #1f2a44;
+    --assistant: #161d2e;
+    --link: #7ab8ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: radial-gradient(1200px 600px at 80% -10%, #16203a 0%, var(--bg) 55%) no-repeat, var(--bg);
+    color: var(--text);
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .shell { width: 100%; max-width: 860px; padding: 20px 16px 28px; display: flex; flex-direction: column; min-height: 100vh; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .logo { width: 30px; height: 30px; border-radius: 7px; background: var(--accent); color: var(--accent-ink);
+    display: grid; place-items: center; font-weight: 800; font-size: 15px; }
+  h1 { font-size: 1.15rem; margin: 0; letter-spacing: 0.2px; }
+  .tagline { color: var(--muted); font-size: 0.85rem; margin: 2px 0 14px; }
+  #auth { padding: 8px 13px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2);
+    color: var(--text); cursor: pointer; font-size: 0.85rem; transition: border-color .15s; }
+  #auth:hover { border-color: var(--accent); }
+
+  #log {
+    flex: 1; border: 1px solid var(--border); border-radius: 14px; padding: 16px;
+    background: var(--panel); overflow-y: auto; min-height: 320px;
+    display: flex; flex-direction: column; gap: 14px; scroll-behavior: smooth;
+  }
+  #log:empty::after {
+    content: "Ask about EC2, S3, IAM, Lambda... Answers are grounded in the live AWS docs.";
+    color: var(--muted); margin: auto; text-align: center; max-width: 360px; line-height: 1.5;
+  }
+  .turn { display: flex; flex-direction: column; gap: 5px; max-width: 86%; }
+  .turn.you { align-self: flex-end; align-items: flex-end; }
+  .turn.assistant { align-self: flex-start; align-items: flex-start; }
+  .role { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); padding: 0 4px; }
+  .turn.you .role { color: var(--accent); }
+  .bubble {
+    padding: 11px 14px; border-radius: 14px; line-height: 1.55; font-size: 0.95rem;
+    border: 1px solid var(--border); word-wrap: break-word; overflow-wrap: anywhere;
+  }
+  .turn.you .bubble { background: var(--user); border-top-right-radius: 4px; }
+  .turn.assistant .bubble { background: var(--assistant); border-top-left-radius: 4px; }
+  .bubble p { margin: 0 0 8px; } .bubble p:last-child { margin-bottom: 0; }
+  .bubble a { color: var(--link); }
+  .bubble code { background: #0c1322; border: 1px solid var(--border); border-radius: 5px;
+    padding: 1px 5px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.86em; }
+  .bubble pre { background: #0c1322; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; overflow-x: auto; margin: 8px 0; }
+  .bubble pre code { background: none; border: 0; padding: 0; font-size: 0.85em; line-height: 1.5; }
+  .dots span { display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%;
+    background: var(--muted); animation: blink 1.2s infinite both; }
+  .dots span:nth-child(2) { animation-delay: .2s; } .dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+  form { display: flex; gap: 10px; margin-top: 14px; }
+  #msg { flex: 1; padding: 13px 15px; border-radius: 11px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); font-size: 0.95rem; outline: none; transition: border-color .15s; }
+  #msg:focus { border-color: var(--accent); }
+  #send { padding: 0 20px; border-radius: 11px; border: 0; background: var(--accent); color: var(--accent-ink);
+    font-weight: 700; cursor: pointer; font-size: 0.95rem; transition: opacity .15s; }
+  #send:disabled { opacity: 0.5; cursor: default; }
+  .hint { color: var(--muted); font-size: 0.78rem; margin-top: 8px; text-align: center; }
 </style>
 </head>
 <body>
-<header>
-  <h1>AWS Documentation Chatbot</h1>
-  <button id="auth" class="secondary"></button>
-</header>
-<small>Ask about AWS. Answers are grounded in the live AWS docs, with citations.</small>
-<div id="log"></div>
-<form id="form">
-  <input id="msg" type="text" placeholder="e.g. How do I enable S3 versioning with the AWS CLI?" autocomplete="off" />
-  <button type="submit">Send</button>
-</form>
+<div class="shell">
+  <header>
+    <div class="brand">
+      <div class="logo">aws</div>
+      <h1>AWS Documentation Chatbot</h1>
+    </div>
+    <button id="auth"></button>
+  </header>
+  <div class="tagline">Ask about AWS &mdash; answers are grounded in the live AWS docs, with citations.</div>
+
+  <div id="log"></div>
+
+  <form id="form">
+    <input id="msg" type="text" placeholder="e.g. How do I enable S3 versioning with the AWS CLI?" autocomplete="off" />
+    <button id="send" type="submit">Send</button>
+  </form>
+  <div class="hint">Scoped to AWS by a Bedrock guardrail. Powered by Claude on Amazon Bedrock + the AWS Documentation MCP server.</div>
+</div>
 
 <script>
   var COGNITO_DOMAIN = "${cognito_domain}";
@@ -66,57 +134,97 @@
     return s;
   }
 
+  // --- minimal, self-contained markdown rendering (escape first, then format) ---
+  function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function renderMarkdown(src) {
+    var blocks = [];
+    // fenced code blocks ```lang ... ``` — drop the optional language label line.
+    var text = src.replace(/```[ \t]*\w*[ \t]*\r?\n?([\s\S]*?)```/g, function (_, code) {
+      blocks.push("<pre><code>" + escapeHtml(code.replace(/\n$/, "")) + "</code></pre>");
+      return "@@CODEBLOCK" + (blocks.length - 1) + "@@";
+    });
+    text = escapeHtml(text);
+    text = text.replace(/`([^`]+)`/g, function (_, c) { return "<code>" + c + "</code>"; });
+    text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    // markdown links [text](url)
+    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // bare URLs (skip ones already inside an href)
+    text = text.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, function (m, pre, url) {
+      return pre + '<a href="' + url + '" target="_blank" rel="noopener">' + url + "</a>";
+    });
+    // paragraphs + line breaks
+    var paras = text.split(/\n{2,}/).map(function (p) { return "<p>" + p.replace(/\n/g, "<br>") + "</p>"; });
+    text = paras.join("");
+    // restore code blocks (and unwrap any <p> that only wraps a block)
+    text = text.replace(/@@CODEBLOCK(\d+)@@/g, function (_, i) { return blocks[Number(i)]; });
+    text = text.replace(/<p>(<pre>[\s\S]*?<\/pre>)<\/p>/g, "$1");
+    return text;
+  }
+
   var log = document.getElementById("log");
   function addTurn(role) {
-    var d = document.createElement("div"); d.className = "turn";
-    var r = document.createElement("div"); r.className = "role"; r.textContent = role;
-    var b = document.createElement("div");
+    var d = document.createElement("div"); d.className = "turn " + role;
+    var r = document.createElement("div"); r.className = "role"; r.textContent = role === "you" ? "you" : "assistant";
+    var b = document.createElement("div"); b.className = "bubble";
     d.appendChild(r); d.appendChild(b); log.appendChild(d); log.scrollTop = log.scrollHeight;
     return b;
   }
+  function thinking(el) { el.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>'; }
+
+  var sendBtn = document.getElementById("send");
+  var msgInput = document.getElementById("msg");
+  function setBusy(busy) { sendBtn.disabled = busy; msgInput.disabled = busy; if (!busy) msgInput.focus(); }
 
   async function send(message) {
-    addTurn("you").textContent = message;
-    var out = addTurn("assistant");
-    var headers = { "Content-Type": "application/json" };
-    var t = token(); if (t) { headers["Authorization"] = "Bearer " + t; }
-    var resp = await fetch("/api/chat", {
-      method: "POST", headers: headers,
-      body: JSON.stringify({ session_id: sessionId(), message: message })
-    });
-    if (resp.status === 401) { out.textContent = "Please log in."; login(); return; }
-    var reader = resp.body.getReader();
-    var dec = new TextDecoder();
-    var buf = "";
-    while (true) {
-      var chunk = await reader.read();
-      if (chunk.done) break;
-      buf += dec.decode(chunk.value, { stream: true });
-      var parts = buf.split("\n\n");
-      buf = parts.pop();
-      for (var i = 0; i < parts.length; i++) {
-        var block = parts[i];
-        if (block.indexOf("event: done") !== -1) { log.scrollTop = log.scrollHeight; return; }
-        var isErr = block.indexOf("event: error") !== -1;
-        var line = block.split("\n").find(function (l) { return l.indexOf("data: ") === 0; });
-        if (!line) continue;
-        var text = JSON.parse(line.substring(6));
-        if (isErr) { out.textContent += "\n[error] " + text; return; }
-        out.textContent += text;
-        log.scrollTop = log.scrollHeight;
+    setBusy(true);
+    var youBubble = addTurn("you"); youBubble.textContent = message;
+    var out = addTurn("assistant"); thinking(out);
+    var raw = ""; var first = true;
+    try {
+      var headers = { "Content-Type": "application/json" };
+      var t = token(); if (t) { headers["Authorization"] = "Bearer " + t; }
+      var resp = await fetch("/api/chat", {
+        method: "POST", headers: headers,
+        body: JSON.stringify({ session_id: sessionId(), message: message })
+      });
+      if (resp.status === 401) { out.textContent = "Please log in to continue."; login(); return; }
+      var reader = resp.body.getReader();
+      var dec = new TextDecoder();
+      var buf = "";
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buf += dec.decode(chunk.value, { stream: true });
+        var parts = buf.split("\n\n");
+        buf = parts.pop();
+        for (var i = 0; i < parts.length; i++) {
+          var block = parts[i];
+          if (block.indexOf("event: done") !== -1) { out.innerHTML = renderMarkdown(raw); log.scrollTop = log.scrollHeight; return; }
+          var isErr = block.indexOf("event: error") !== -1;
+          var line = block.split("\n").find(function (l) { return l.indexOf("data: ") === 0; });
+          if (!line) continue;
+          var text = JSON.parse(line.substring(6));
+          if (isErr) { out.textContent = (raw || "") + "\n[error] " + text; return; }
+          if (first) { out.textContent = ""; first = false; }
+          raw += text;
+          out.innerHTML = renderMarkdown(raw);
+          log.scrollTop = log.scrollHeight;
+        }
       }
-    }
+      out.innerHTML = renderMarkdown(raw);
+    } finally { setBusy(false); }
   }
 
   captureTokenFromHash();
   renderAuth();
   document.getElementById("form").addEventListener("submit", function (e) {
     e.preventDefault();
-    var input = document.getElementById("msg");
-    var m = input.value.trim();
+    var m = msgInput.value.trim();
     if (!m) return;
-    input.value = "";
-    send(m).catch(function (err) { addTurn("assistant").textContent = "[error] " + err; });
+    msgInput.value = "";
+    send(m).catch(function (err) { addTurn("assistant").textContent = "[error] " + err; setBusy(false); });
   });
 </script>
 </body>

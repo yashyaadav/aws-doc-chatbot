@@ -15,8 +15,22 @@ Browser ─▶ CloudFront ─▶ API Gateway (HTTP) ─▶ Lambda (container)
                                             DynamoDB (history)   Cognito (auth, JWT verified in-handler)
 ```
 
-> **Live:** https://d47xudcf1qjnj.cloudfront.net — sign in with the demo user (`demo@example.com`;
-> password shared separately). Deployed to AWS account 315311531132 / us-east-1.
+## Try the live demo
+
+- **URL:** https://d47xudcf1qjnj.cloudfront.net  (AWS account 315311531132 / us-east-1)
+- **Sign in:** click **Log in** → Cognito Hosted UI → use the demo account:
+  - **Username:** `demo@example.com`
+  - **Password:** _shared separately with the assignment submission_ (kept out of this public repo)
+- **Ask something AWS:** answers stream back with **clickable `docs.aws.amazon.com` citations**, e.g.
+  - _"How do I enable S3 bucket versioning with the AWS CLI?"_
+  - _"What's the difference between an IAM role and an IAM user?"_
+  - _"How do I set a Lambda function's timeout in Terraform?"_
+- **Watch the guardrail:** ask something off-topic (_"What stock should I buy?"_) and the Bedrock
+  guardrail replies _"I can only help with Amazon Web Services questions."_ — proof answers are
+  scoped to AWS, not the model free-styling.
+
+> Sessions are per-browser (a `session_id` in `localStorage`), so the bot remembers earlier turns in
+> the same conversation. **Log out** clears the token; use it to test the auth flow.
 
 > **Ingress note:** the design targets a streaming **Lambda Function URL** (no API Gateway 29s cap).
 > The shared exam account blocks Function URL invocation via an org guardrail, so the deployed path
@@ -49,8 +63,8 @@ curl -N localhost:8080/api/chat -H 'content-type: application/json' \
 ## Layout
 ```
 backend/    FastAPI app (Strands agent + MCP client + Bedrock) — runs locally and on Lambda
-infra/      Terraform (modules + envs/dev)
-frontend/   static chat UI (CloudFront/S3)
+infra/      Terraform: modules/{ecr,lambda,apigw,cognito,dynamodb,guardrail,frontend,observability}
+            + envs/dev. The chat UI is modules/frontend/assets/index.html.tftpl (templated → S3).
 docs/       architecture + rationale
 ```
 
@@ -58,6 +72,48 @@ docs/       architecture + rationale
 All via env (see `.env.example`): `BEDROCK_MODEL_ID` (default the Opus 4.8 global inference
 profile), `AWS_REGION`, `AGENT_MAX_TOKENS`/`AGENT_MAX_TOOL_ITERATIONS` (cost/latency guards),
 `CONVERSATIONS_TABLE` (DynamoDB; empty = in-memory for local), `AUTH_ENABLED` + Cognito ids.
+
+## Deploying & updating
+
+Terraform provisions **all infrastructure**, but it pins the Lambda to the `…:latest` image **tag**,
+so it does not build/push the image or redeploy code on its own. The flows:
+
+**First-time deploy** (or fresh account)
+```bash
+# 0. one-time bootstrap (state backend lives outside this stack, by design):
+#    create S3 bucket yy-awsdocs-tfstate-<acct> + DynamoDB lock table yy-awsdocs-tflock
+# 1. secrets/config:
+cp .env.example .env                       # set AWS_PROFILE, AWS_REGION
+echo 'TF_VAR_demo_password=<pick-one>' >> .env   # demo user password (gitignored)
+# 2. build + push the container image so the Lambda has something to run:
+set -a; source .env; set +a
+REPO=$(cd infra/envs/dev && terraform output -raw ecr_repository_url 2>/dev/null || echo "<after first apply>")
+aws ecr get-login-password | docker login --username AWS --password-stdin "${REPO%/*}"
+docker build --platform linux/amd64 -t "${REPO}:latest" backend && docker push "${REPO}:latest"
+# 3. apply. Cognito callback URLs need the CloudFront domain, so it's a two-pass apply:
+make tf-apply                              # 1st pass creates CloudFront
+#   → copy the app_url into infra/envs/dev/dev.tfvars (callback_urls / logout_urls)
+make tf-apply                              # 2nd pass wires Cognito to the real URL
+```
+
+**Ship a backend code change** (Terraform won't notice a same-tag image)
+```bash
+set -a; source .env; set +a
+REPO=315311531132.dkr.ecr.us-east-1.amazonaws.com/yy-awsdocs-backend
+docker build --platform linux/amd64 -t "${REPO}:latest" backend && docker push "${REPO}:latest"
+aws lambda update-function-code --function-name yy-awsdocs-api --image-uri "${REPO}:latest"
+```
+
+**Ship a frontend change** (the UI is an S3 object behind CloudFront)
+```bash
+make tf-apply                              # re-uploads index.html (etag is content-hashed)
+aws cloudfront create-invalidation --distribution-id <id> --paths "/" "/index.html"
+```
+
+> CI (`.github/workflows/ci.yml`) gates every PR with ruff + pytest + `terraform validate` (no AWS
+> creds). `deploy.yml` automates the build/push/apply above via GitHub OIDC; if the account blocks
+> the OIDC provider, use the local commands here. ⚠️ In zsh write `${REPO}:latest` (braces) — bare
+> `$REPO:latest` triggers the `:l` history modifier and silently mangles the tag.
 
 ## Cost
 On-demand only: Bedrock per-token (Opus 4.8), Lambda per-invocation, DynamoDB on-demand,
