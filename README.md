@@ -67,6 +67,19 @@ Browser ─▶ CloudFront ─▶ API Gateway (HTTP) ─▶ Lambda (container)
 > uses **API Gateway** (buffered, 30s cap) instead. The Function URL design is preferred in an
 > unrestricted account; both are in the Terraform (the `apigw` module is the active ingress).
 
+### Performance & known tradeoffs
+- **Latency:** warm answers stream back in ~2–20s. The **first request after idle is ~15s** (container
+  Lambda cold start — heavy `strands`/`boto3` imports exceed the 10s init window); subsequent replies
+  are fast.
+- **The 30s cap is a hard limit.** API Gateway **HTTP APIs** cap the integration timeout at 30s and it
+  **cannot be raised** (a REST API could be quota-increased above 29s, but the streaming Function URL —
+  blocked here — is the better fix). To stay within it: Sonnet 4.6, a 3-tool-call cap, and token limits.
+- **Graceful overrun handling.** If a turn still exceeds 30s (e.g. cold start + a multi-step question),
+  the agent finishes server-side and the turn is **persisted to DynamoDB**; the UI then **auto-fetches
+  the saved answer from `/api/history`** instead of failing — no manual refresh.
+- **Provisioned concurrency is deliberately omitted** to avoid standing cost in this demo account. Adding
+  it (or, in an unrestricted account, the streaming Function URL) would eliminate the cold start entirely.
+
 ## Infrastructure as Code (Terraform)
 
 **Every AWS resource is defined in Terraform — nothing was created by hand in the console.** The live

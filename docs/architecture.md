@@ -55,8 +55,12 @@ documentation, delivered as a production-grade serverless app provisioned with T
   calls per turn** (a Strands `BeforeToolCallEvent` hook that cancels the 4th with an "answer now"
   message — graceful, not truncation), `AGENT_MAX_TOKENS=2000`, and 2048 MB Lambda memory to keep
   cold-start init under the 10s window. Broad questions now complete (~24s) instead of timing out.
-  The residual cost is a slow first-hit cold start (~15-18s); provisioned concurrency or the
-  streaming Function URL (blocked here) would remove it.
+  The 30s is a **hard limit** — HTTP API integration timeouts can't be raised (a REST API could be
+  quota-increased, but the streaming Function URL is the better fix). If a turn *still* exceeds 30s
+  (cold start + a multi-step question), the Lambda finishes and **persists the turn**, and the UI
+  **auto-recovers it from `/api/history`** rather than failing. The residual cost is a slow first-hit
+  cold start (~15-18s); **provisioned concurrency is deliberately omitted** to avoid standing demo
+  cost — it, or the streaming Function URL (blocked here), would remove it.
 - **Ingress: CloudFront → API Gateway (HTTP) → Lambda.** The *intended* design was a streaming
   **Lambda Function URL** behind CloudFront (avoids API Gateway's 29s cap, which an Opus agentic
   turn can exceed). **This shared exam account blocks Function URL invocation via an org guardrail**
