@@ -47,6 +47,11 @@ def verify_token(token: str) -> dict:
             algorithms=["RS256"],
             audience=settings.cognito_app_client_id,
             issuer=_issuer(),
+            # Hosted-UI implicit-flow ID tokens carry an `at_hash` claim (an access
+            # token is issued alongside). We only have the ID token here, so skip the
+            # at_hash check — otherwise python-jose rejects it with "No access_token
+            # provided to compare against at_hash claim." Signature/aud/iss/exp still verified.
+            options={"verify_at_hash": False},
         )
     except AuthError:
         raise
