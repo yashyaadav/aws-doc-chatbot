@@ -8,6 +8,9 @@ variable "conversations_table_arn" { type = string }
 variable "auth_enabled" { type = bool }
 variable "cognito_user_pool_id" { type = string }
 variable "cognito_app_client_id" { type = string }
+variable "guardrail_id" { type = string }
+variable "guardrail_version" { type = string }
+variable "guardrail_arn" { type = string }
 
 locals {
   function_name = "${var.name_prefix}-api"
@@ -45,6 +48,11 @@ data "aws_iam_policy_document" "perms" {
     resources = var.bedrock_resource_arns
   }
   statement {
+    sid       = "Guardrail"
+    actions   = ["bedrock:ApplyGuardrail"]
+    resources = [var.guardrail_arn]
+  }
+  statement {
     sid       = "Dynamo"
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
     resources = [var.conversations_table_arn]
@@ -73,13 +81,15 @@ resource "aws_lambda_function" "this" {
 
   environment {
     variables = {
-      BEDROCK_MODEL_ID      = var.bedrock_model_id
-      CONVERSATIONS_TABLE   = var.conversations_table
-      AUTH_ENABLED          = var.auth_enabled ? "true" : "false"
-      COGNITO_USER_POOL_ID  = var.cognito_user_pool_id
-      COGNITO_APP_CLIENT_ID = var.cognito_app_client_id
-      AGENT_MAX_TOKENS      = "3000" # keep turns within the API Gateway 30s cap
-      AWS_LWA_INVOKE_MODE   = "buffered"
+      BEDROCK_MODEL_ID          = var.bedrock_model_id
+      CONVERSATIONS_TABLE       = var.conversations_table
+      AUTH_ENABLED              = var.auth_enabled ? "true" : "false"
+      COGNITO_USER_POOL_ID      = var.cognito_user_pool_id
+      COGNITO_APP_CLIENT_ID     = var.cognito_app_client_id
+      AGENT_MAX_TOKENS          = "3000" # keep turns within the API Gateway 30s cap
+      AWS_LWA_INVOKE_MODE       = "buffered"
+      BEDROCK_GUARDRAIL_ID      = var.guardrail_id
+      BEDROCK_GUARDRAIL_VERSION = var.guardrail_version
     }
   }
 

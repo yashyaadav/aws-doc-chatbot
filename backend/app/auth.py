@@ -18,7 +18,9 @@ class AuthError(Exception):
 
 
 def _issuer() -> str:
-    return f"https://cognito-idp.{settings.aws_region}.amazonaws.com/{settings.cognito_user_pool_id}"
+    return (
+        f"https://cognito-idp.{settings.aws_region}.amazonaws.com/{settings.cognito_user_pool_id}"
+    )
 
 
 @functools.lru_cache(maxsize=1)

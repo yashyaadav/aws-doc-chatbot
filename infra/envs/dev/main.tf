@@ -10,6 +10,11 @@ module "dynamodb" {
   name_prefix = var.name_prefix
 }
 
+module "guardrail" {
+  source      = "../../modules/guardrail"
+  name_prefix = var.name_prefix
+}
+
 # Independent of the frontend: callback URLs come from a var (set to the
 # CloudFront URL after the first apply, then re-apply) to avoid a dependency cycle.
 module "cognito" {
@@ -35,6 +40,9 @@ module "lambda" {
   auth_enabled            = var.auth_enabled
   cognito_user_pool_id    = module.cognito.user_pool_id
   cognito_app_client_id   = module.cognito.app_client_id
+  guardrail_id            = module.guardrail.guardrail_id
+  guardrail_version       = module.guardrail.guardrail_version
+  guardrail_arn           = module.guardrail.guardrail_arn
 }
 
 # Public ingress. Lambda Function URLs are blocked by an org guardrail in this

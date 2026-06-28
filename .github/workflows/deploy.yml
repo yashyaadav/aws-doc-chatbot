@@ -1,0 +1,65 @@
+name: Deploy (dev)
+
+# Manual only. Requires GitHub OIDC into an AWS deploy role. In this shared exam
+# account OIDC-provider creation may be blocked by the org guardrail — if so,
+# deploy locally with `make tf-apply` (the CI job above still gates every PR).
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC role assumption
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.5"
+
+      - name: Terraform init
+        working-directory: infra/envs/dev
+        run: terraform init
+
+      # ECR must exist before we can push the image the Lambda runs.
+      - name: Ensure ECR repo
+        working-directory: infra/envs/dev
+        run: terraform apply -auto-approve -target=module.ecr
+
+      - name: Build & push image
+        working-directory: backend
+        run: |
+          REPO=$(cd ../infra/envs/dev && terraform output -raw ecr_repository_url)
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "${REPO%/*}"
+          docker build --platform linux/amd64 -t "$REPO:latest" .
+          docker push "$REPO:latest"
+
+      - name: Terraform apply
+        working-directory: infra/envs/dev
+        env:
+          TF_VAR_demo_password: ${{ secrets.DEMO_PASSWORD }}
+        run: terraform apply -auto-approve -var-file=dev.tfvars
+
+      - name: Update function code
+        run: |
+          FN=$(cd infra/envs/dev && terraform output -raw conversations_table >/dev/null 2>&1; echo yy-awsdocs-api)
+          REPO=$(cd infra/envs/dev && terraform output -raw ecr_repository_url)
+          aws lambda update-function-code --function-name "$FN" --image-uri "$REPO:latest" >/dev/null

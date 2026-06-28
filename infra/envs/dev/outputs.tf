@@ -30,3 +30,7 @@ output "cognito_app_client_id" {
 output "conversations_table" {
   value = module.dynamodb.table_name
 }
+
+output "guardrail_id" {
+  value = module.guardrail.guardrail_id
+}

@@ -26,9 +26,7 @@ class InMemoryStore:
 
 class DynamoStore:
     def __init__(self, table_name: str) -> None:
-        self._table = boto3.resource("dynamodb", region_name=settings.aws_region).Table(
-            table_name
-        )
+        self._table = boto3.resource("dynamodb", region_name=settings.aws_region).Table(table_name)
 
     def get(self, session_id: str) -> list:
         item = self._table.get_item(Key={"session_id": session_id}).get("Item")

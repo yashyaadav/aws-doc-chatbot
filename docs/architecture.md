@@ -11,7 +11,7 @@ documentation, delivered as a production-grade serverless app provisioned with T
                         CloudFront (TLS, single domain)
                        ┌────────┴───────────────────────┐
               /  (static)                         /api/* (chat)
-          S3 static site (OAC)        Lambda Function URL  (RESPONSE_STREAM, 15-min)
+          S3 static site (OAC)        API Gateway (HTTP) ─▶ Lambda proxy
                                        Lambda (container image)  ── IAM exec role
                                        ┌──────────────────────────────────────┐
                                        │  verify Cognito JWT (in-handler)      │
@@ -24,7 +24,7 @@ documentation, delivered as a production-grade serverless app provisioned with T
                                             DynamoDB  yy-awsdocs-conversations
                                                        │
                               CloudWatch Logs / Metrics / X-Ray + Bedrock invocation logging
-                                          + AWS Budgets alarm  (+ optional Bedrock Guardrails)
+                              + AWS Budgets alarm  + Bedrock Guardrail (applied on every invocation)
 ```
 
 ## Request flow
@@ -48,8 +48,13 @@ documentation, delivered as a production-grade serverless app provisioned with T
   `arn:aws:bedrock:us-east-1:315311531132:inference-profile/global.anthropic.claude-opus-4-8`.
   Sampling params (`temperature`/`top_p`) are not accepted on this model family — confirmed via the
   smoke test. Model id is a config var so it is swappable (e.g. to Sonnet 4.6 for cost).
-- **Lambda Function URL with response streaming, behind CloudFront** — avoids API Gateway's 29s
-  integration cap, which an Opus agentic turn (several model calls + doc fetches) can exceed.
+- **Ingress: CloudFront → API Gateway (HTTP) → Lambda.** The *intended* design was a streaming
+  **Lambda Function URL** behind CloudFront (avoids API Gateway's 29s cap, which an Opus agentic
+  turn can exceed). **This shared exam account blocks Function URL invocation via an org guardrail**
+  (both public `NONE` auth and CloudFront-OAC-signed `AWS_IAM` return 403), so the deployed ingress
+  is API Gateway HTTP API → Lambda proxy (buffered, 30s cap), with `AGENT_MAX_TOKENS` lowered to fit.
+  In an unrestricted account, flip the `lambda` module back to a `RESPONSE_STREAM` Function URL +
+  CloudFront OAC. The agent still streams SSE; API Gateway buffers it and the UI renders the result.
 - **MCP server packaged in the image** (pip-installed at build, launched as `python -m
   awslabs.aws_documentation_mcp_server.server` — PATH-independent), spawned once per warm container
   and reused. Lambda stays out of a VPC so it can reach `docs.aws.amazon.com`.
@@ -57,6 +62,14 @@ documentation, delivered as a production-grade serverless app provisioned with T
   list as JSON, with a TTL. In-memory fallback for local dev.
 - **Cost/latency guards:** `AGENT_MAX_TOKENS`, a tool-iteration cap, Bedrock prompt caching on the
   stable system prompt, and an AWS Budgets alarm.
+- **Bedrock Guardrail (defense in depth).** A guardrail is attached to every Bedrock invocation
+  (Strands `BedrockModel(guardrail_id, guardrail_version)`): a denied **topic policy** keeps the bot
+  out of legal/medical/financial advice, **content filters** (hate/sexual/violence/misconduct +
+  `PROMPT_ATTACK` to resist prompt-injection of the system prompt), and a **PII policy** that blocks
+  card numbers / SSNs / AWS secret keys and anonymizes emails before they reach the model or logs.
+  Off-topic or unsafe input gets the scoped refusal message; the system prompt already steers toward
+  AWS, and the guardrail enforces it server-side. The Lambda role grants only `bedrock:ApplyGuardrail`
+  on this one guardrail ARN.
 
 ## Alternatives considered
 - **Anthropic SDK (`AnthropicBedrock`) + a hand-written MCP tool-use loop** instead of Strands:
